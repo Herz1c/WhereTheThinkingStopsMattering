@@ -6,6 +6,8 @@
 #   bash scripts/setup_pod.sh setup    # uv, venv, requirements, frozen questions
 #   bash scripts/setup_pod.sh smoke    # 30-question plumbing check (~1 min)
 #   bash scripts/setup_pod.sh base     # full baseline -> runs/base (~2 h on a 4090)
+#   STOP_AFTER=110 bash scripts/setup_pod.sh base    # stop cleanly after ~110 min;
+#                                                    # run `base` again later to resume
 #
 # `base` runs in the background under nohup and logs to runs/base.log, so an
 # SSH disconnect does not kill it: follow it with `tail -f runs/base.log`.
@@ -75,8 +77,11 @@ base() {
         exit 1
     fi
     mkdir -p runs
-    nohup python evaluate.py --out runs/base > runs/base.log 2>&1 &
-    echo "Baseline started (pid $!). Follow it with: tail -f $REPO_DIR/runs/base.log"
+    # Resumable: running `base` again continues an interrupted run. STOP_AFTER=<minutes>
+    # makes it stop cleanly between batches, for machines that cannot run for hours.
+    nohup python scripts/resumable_eval.py --out runs/base ${STOP_AFTER:+--stop-after $STOP_AFTER} \
+        >> runs/base.log 2>&1 &
+    echo "Baseline running (pid $!). Follow it with: tail -f $REPO_DIR/runs/base.log"
 }
 
 case "${1:-}" in
