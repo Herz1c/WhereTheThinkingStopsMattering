@@ -9,6 +9,9 @@
 #
 # `base` runs in the background under nohup and logs to runs/base.log, so an
 # SSH disconnect does not kill it: follow it with `tail -f runs/base.log`.
+#
+# Locally under WSL2, point WORKSPACE at the Linux home (not /mnt/c, which is slow):
+#   WORKSPACE=$HOME bash scripts/setup_pod.sh setup
 
 set -euo pipefail
 
@@ -52,6 +55,11 @@ setup() {
 activate() {
     cd "$REPO_DIR"
     source .venv/bin/activate
+    # WSL cannot pin host memory, and vLLM's V2 model runner requires it
+    # ("UVA is not available"). The V1 runner generates the same way without it.
+    if grep -qi microsoft /proc/version; then
+        export VLLM_USE_V2_MODEL_RUNNER=0
+    fi
 }
 
 smoke() {
