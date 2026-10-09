@@ -87,11 +87,20 @@ def main():
     parser.add_argument("--margin", type=int, default=0,
                         help="Stop this many paragraph boundaries after the earliest good one: "
                              "less aggressive, one point on the length/accuracy curve")
+    parser.add_argument("--adaptive-margin", type=float,
+                        help="Instead of a fixed margin, use round(M * (1 - p)) boundaries, where p is the "
+                             "share of the question's base rollouts that knew the answer: stop at once on "
+                             "questions the model finds easy, leave room to verify on hard ones")
     parser.add_argument("--seed", type=int, default=0)
     arguments = parser.parse_args()
 
     rows = [json.loads(line) for line in (arguments.rollouts / "rollouts.jsonl").read_text().splitlines()]
     known_questions = {r["question_id"] for r in rows if r["knows"]}
+    # Difficulty for the adaptive margin: how many of the question's own rollouts knew the answer.
+    pass_rate = defaultdict(list)
+    for r in rows:
+        pass_rate[r["question_id"]].append(r["knows"])
+    pass_rate = {q: sum(v) / len(v) for q, v in pass_rate.items()}
     rows = [r for r in rows if r["question_id"] in known_questions]
     if arguments.limit:
         rows = rows[:arguments.limit]
@@ -164,8 +173,17 @@ def main():
 
     # The stop actually used: the earliest good cut, moved `margin` boundaries later (never past
     # the last cut). A moved cut is checked on its own: it gets 2 + 4 answers like any other.
-    chosen = [min(lo[i] + arguments.margin, len(cuts[i]) - 1) if lo[i] < len(cuts[i]) else lo[i]
+    def margin(i):
+        if arguments.adaptive_margin is None:
+            return arguments.margin
+        return round(arguments.adaptive_margin * (1 - pass_rate[rows[i]["question_id"]]))
+    chosen = [min(lo[i] + margin(i), len(cuts[i]) - 1) if lo[i] < len(cuts[i]) else lo[i]
               for i in range(len(rows))]
+    if arguments.adaptive_margin is not None:
+        spread = defaultdict(int)
+        for i in range(len(rows)):
+            spread[margin(i)] += 1
+        print("adaptive margin -> rollouts:", dict(sorted(spread.items())), flush=True)
     found = [(i, chosen[i]) for i in range(len(rows)) if lo[i] < len(cuts[i])]
     for have in range(PROBE_SAMPLES + VERIFY_SAMPLES):
         sample([(i, c) for i, c in found if len(answers.get((i, c), [])) == have],
@@ -211,7 +229,8 @@ def main():
     counts = defaultdict(int)
     for o in outcomes:
         counts[(o["closed"], o["result"])] += 1
-    print(f"\nmargin {arguments.margin}: {len(rows)} rollouts searched in {rounds} rounds, "
+    label = f"adaptive {arguments.adaptive_margin:g}" if arguments.adaptive_margin is not None else arguments.margin
+    print(f"\nmargin {label}: {len(rows)} rollouts searched in {rounds} rounds, "
           f"{(time.monotonic() - started) / 60:.0f} min")
     for (closed, result), n in sorted(counts.items()):
         print(f"  {'finished ' if closed else 'truncated'}  {result:20s} {n}")
