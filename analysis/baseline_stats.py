@@ -22,6 +22,9 @@ Two things the metric makes worth knowing, and this script measures:
 Looping is flagged by how well the end of a response compresses (zlib): a model
 repeating itself produces text that compresses far better than real reasoning.
 The threshold is a heuristic -- read a few `--examples` before trusting it.
+It only catches degenerate repetition. A response can also hit the cap by thinking
+on and on without converging, which compresses like normal text; so truncated
+responses are split by where they were cut: still inside <think>, or after it.
 """
 
 import argparse
@@ -108,6 +111,8 @@ def describe(records):
         "reasoning_share": sum(r["reasoning_tokens"] for r in records) / total,
         "truncation_rate": sum(r["truncated"] for r in records) / len(records),
         "truncated_token_share": sum(r["output_tokens"] for r in records if r["truncated"]) / total,
+        "truncated_in_thinking": (sum(r["truncated"] and "</think>" not in r["text"] for r in records)
+                                  / max(1, sum(r["truncated"] for r in records))),
         "looping_rate": len(loops) / len(records),
         "looping_token_share": sum(r["output_tokens"] for r in loops) / total,
         "tail_share": sum(longest) / total,
@@ -143,6 +148,7 @@ def markdown(stats, average):
         ("Thinking share", "reasoning_share", "{:.1%}"),
         ("Truncation rate", "truncation_rate", "{:.1%}"),
         ("Tokens in truncated", "truncated_token_share", "{:.1%}"),
+        ("Truncated still thinking", "truncated_in_thinking", "{:.0%}"),
         ("Looping rate", "looping_rate", "{:.1%}"),
         ("Tokens in loops", "looping_token_share", "{:.1%}"),
         ("Tokens in longest 10%", "tail_share", "{:.1%}"),
