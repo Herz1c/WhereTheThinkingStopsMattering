@@ -1,6 +1,8 @@
 """The base model's own rollouts on training questions: the raw material for every method here.
 
     python stopping/generate_rollouts.py --out runs/rollouts_gsm8k --sources gsm8k --questions 1500
+    python stopping/generate_rollouts.py --out runs/val_stoppoint --data data/val.jsonl --questions 200 \
+        --adapter checkpoints/stoppoint      # a checkpoint on held-out questions
 
 Both the reference baseline (SFT on the shortest correct rollout) and stop-point
 distillation start from the same thing: several samples of Qwen3-0.6B answering a
@@ -55,6 +57,8 @@ def main():
     parser.add_argument("--questions", type=int, default=1500)
     parser.add_argument("--samples", type=int, default=4, help="Rollouts per question")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--adapter", type=Path, help="A LoRA to generate with, e.g. to compare "
+                                                      "checkpoints on validation questions")
     arguments = parser.parse_args()
 
     questions = pick(arguments.data, set(arguments.sources.split(",")), arguments.questions, arguments.seed)
@@ -79,12 +83,18 @@ def main():
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
+    from vllm.lora.request import LoRARequest
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL)
     close_id = tokenizer.convert_tokens_to_ids("</think>")
     # Prefix caching lets the samples of one question share its prompt.
+    rank = None
+    if arguments.adapter:
+        rank = json.loads((arguments.adapter / "adapter_config.json").read_text())["r"]
     llm = LLM(model=MODEL, enable_prefix_caching=True, gpu_memory_utilization=0.85,
-              max_model_len=MAX_TOKENS + 1024, seed=arguments.seed)
+              max_model_len=MAX_TOKENS + 1024, seed=arguments.seed,
+              enable_lora=rank is not None, max_lora_rank=rank or 16)
+    lora = LoRARequest("candidate", 1, str(arguments.adapter.resolve())) if arguments.adapter else None
     params = SamplingParams(**SAMPLING, n=arguments.samples, max_tokens=MAX_TOKENS, seed=arguments.seed)
 
     started = time.monotonic()
@@ -93,7 +103,7 @@ def main():
             chunk = todo[start:start + CHUNK]
             prompts = [tokenizer.apply_chat_template(q["prompt"], tokenize=False, add_generation_prompt=True,
                                                      enable_thinking=True) for q in chunk]
-            for q, result in zip(chunk, llm.generate(prompts, params)):
+            for q, result in zip(chunk, llm.generate(prompts, params, lora_request=lora)):
                 for k, output in enumerate(result.outputs):
                     ids = list(output.token_ids)
                     # Drops <|im_end|>, which would otherwise end the "Final answer:" line;

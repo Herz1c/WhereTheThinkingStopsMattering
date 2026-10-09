@@ -84,6 +84,9 @@ def main():
     parser.add_argument("rollouts", type=Path, help="A directory written by generate_rollouts.py")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--limit", type=int, help="Only the first N rollouts (for a test)")
+    parser.add_argument("--margin", type=int, default=0,
+                        help="Stop this many paragraph boundaries after the earliest good one: "
+                             "less aggressive, one point on the length/accuracy curve")
     parser.add_argument("--seed", type=int, default=0)
     arguments = parser.parse_args()
 
@@ -159,13 +162,19 @@ def main():
         print(f"round {rounds}: {len(jobs)} probes, {sum(l < h for l, h in zip(lo, hi))} rollouts still searching, "
               f"{(time.monotonic() - started) / 60:.0f} min", flush=True)
 
-    found = [(i, lo[i]) for i in range(len(rows)) if lo[i] < len(cuts[i])]
-    sample([(i, c) for i, c in found if len(answers[(i, c)]) < PROBE_SAMPLES + VERIFY_SAMPLES], VERIFY_SAMPLES)
+    # The stop actually used: the earliest good cut, moved `margin` boundaries later (never past
+    # the last cut). A moved cut is checked on its own: it gets 2 + 4 answers like any other.
+    chosen = [min(lo[i] + arguments.margin, len(cuts[i]) - 1) if lo[i] < len(cuts[i]) else lo[i]
+              for i in range(len(rows))]
+    found = [(i, chosen[i]) for i in range(len(rows)) if lo[i] < len(cuts[i])]
+    for have in range(PROBE_SAMPLES + VERIFY_SAMPLES):
+        sample([(i, c) for i, c in found if len(answers.get((i, c), [])) == have],
+               PROBE_SAMPLES + VERIFY_SAMPLES - have)
     save()
 
     outcomes, train = [], []
     for i, r in enumerate(rows):
-        c = lo[i]
+        c = chosen[i]
         outcome = {"question_id": r["question_id"], "sample": r["sample"], "tokens": r["tokens"],
                    "closed": r["closed"], "correct": r["correct"], "knows": r["knows"],
                    "boundaries": len(cuts[i])}
@@ -202,7 +211,7 @@ def main():
     counts = defaultdict(int)
     for o in outcomes:
         counts[(o["closed"], o["result"])] += 1
-    print(f"\n{len(rows)} rollouts searched in {rounds} rounds, "
+    print(f"\nmargin {arguments.margin}: {len(rows)} rollouts searched in {rounds} rounds, "
           f"{(time.monotonic() - started) / 60:.0f} min")
     for (closed, result), n in sorted(counts.items()):
         print(f"  {'finished ' if closed else 'truncated'}  {result:20s} {n}")
