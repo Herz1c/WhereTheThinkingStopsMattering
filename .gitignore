@@ -14,3 +14,7 @@ data/
 
 outputs/
 *.log
+
+# drafts kept private until the final version
+IDEA.md
+PROGRESS.md
