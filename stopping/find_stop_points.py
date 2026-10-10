@@ -16,8 +16,8 @@ it to leave there.
 Search, per rollout, over the token positions right after a token that ends a paragraph
 ("\\n\\n"), from the end of the first paragraph on (the model must keep thinking):
 
-- A boundary is *good* when both of 2 sampled answers from it know the answer (the lenient
-  grader of analysis/forced_stop_sweep.py: last "Final answer:" or \\boxed{}).
+- A boundary is *good* when both of 2 sampled answers from it know the answer (stopping/grading.py:
+  for math the last "Final answer:" or \\boxed{}; for code, passing the unit tests).
 - Binary search for the earliest good boundary, assuming that once the answer is known it
   stays known. All rollouts advance one step per round, so each round is one batched vLLM
   call with prefix caching.
@@ -44,9 +44,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from analysis.forced_stop_sweep import knows  # noqa: E402
+from stopping.grading import grade  # noqa: E402
 from utils.eval.recipe import SAMPLING  # noqa: E402
-from utils.train.rewards import is_task_correct  # noqa: E402
 
 MODEL = "Qwen/Qwen3-0.6B"
 THINK_CLOSE = 151668        # </think>
@@ -91,6 +90,10 @@ def main():
                         help="Instead of a fixed margin, use round(M * (1 - p)) boundaries, where p is the "
                              "share of the question's base rollouts that knew the answer: stop at once on "
                              "questions the model finds easy, leave room to verify on hard ones")
+    parser.add_argument("--answer-tokens", type=int, default=ANSWER_TOKENS,
+                        help="Cap for each forced answer (code needs more room than a number)")
+    parser.add_argument("--max-rollout-tokens", type=int, default=4096,
+                        help="The cap the rollouts were generated with")
     parser.add_argument("--seed", type=int, default=0)
     arguments = parser.parse_args()
 
@@ -127,6 +130,11 @@ def main():
         lo, hi, rounds = state["lo"], state["hi"], state["rounds"]
         answers = {tuple(map(int, k.split(":"))): v for k, v in state["answers"].items()}
         print(f"resuming after round {rounds}", flush=True)
+        # States written before answers carried their grades: grade them once now.
+        ungraded = [(key, a) for key, sampled in answers.items() for a in sampled if "knows" not in a]
+        for (key, a), (strict, known_) in zip(ungraded, grade([(rows[key[0]], "</think>" + a["text"])
+                                                                for key, a in ungraded])):
+            a["strict"], a["knows"] = strict, known_
     else:
         lo, hi, rounds = [0] * len(rows), [len(c) for c in cuts], 0
         answers = {}
@@ -136,24 +144,28 @@ def main():
                                           "answers": {f"{a}:{b}": v for (a, b), v in answers.items()}}))
 
     llm = LLM(model=MODEL, enable_prefix_caching=True, gpu_memory_utilization=0.85,
-              max_model_len=4096 + 1024 + ANSWER_TOKENS, seed=arguments.seed)
+              max_model_len=arguments.max_rollout_tokens + 1024 + arguments.answer_tokens, seed=arguments.seed)
 
     def sample(jobs, n):
         """jobs: [(rollout index, cut index)] -> stores n more answers for each."""
         if not jobs:
             return
-        params = SamplingParams(**SAMPLING, n=n, max_tokens=ANSWER_TOKENS, seed=arguments.seed + rounds)
+        params = SamplingParams(**SAMPLING, n=n, max_tokens=arguments.answer_tokens, seed=arguments.seed + rounds)
         inputs = [{"prompt_token_ids": forced_ids(prompts[rows[i]["question_id"]], rows[i], cuts[i][c])}
                   for i, c in jobs]
+        new = []
         for (i, c), result in zip(jobs, llm.generate(inputs, params)):
             answers.setdefault((i, c), [])
-            answers[(i, c)] += [{"ids": list(o.token_ids), "text": o.text,
-                                 "finished": o.finish_reason == "stop"} for o in result.outputs]
+            for o in result.outputs:
+                a = {"ids": list(o.token_ids), "text": o.text, "finished": o.finish_reason == "stop"}
+                answers[(i, c)].append(a)
+                new.append((i, a))
+        for (i, a), (strict, known_) in zip(new, grade([(rows[i], "</think>" + a["text"]) for i, a in new])):
+            a["strict"], a["knows"] = strict, known_
 
     def known(i, c, needed):
         texts = answers[(i, c)]
-        return sum(a["finished"] and knows("</think>" + a["text"], rows[i]["answer"], rows[i]["task"])
-                   for a in texts) >= needed
+        return sum(a["finished"] and a["knows"] for a in texts) >= needed
 
     started = time.monotonic()
     while True:
@@ -201,10 +213,8 @@ def main():
         else:
             cut = cuts[i][c]
             sampled = answers[(i, c)]
-            verified = sum(a["finished"] and knows("</think>" + a["text"], r["answer"], r["task"])
-                           for a in sampled[PROBE_SAMPLES:]) >= VERIFY_NEEDED
-            clean = [a for a in sampled if a["finished"]
-                     and is_task_correct("</think>" + a["text"], r["answer"], r["task"])]
+            verified = sum(a["finished"] and a["knows"] for a in sampled[PROBE_SAMPLES:]) >= VERIFY_NEEDED
+            clean = [a for a in sampled if a["finished"] and a["strict"]]
             own_end = r["closed"] and cut == r["token_ids"].index(THINK_CLOSE)
             outcome |= {"stop": cut, "stop_fraction": cut / (r["thinking_tokens"] if r["closed"] else r["tokens"])}
             if own_end:
@@ -245,3 +255,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Everything is written and closed by now. vLLM's engine teardown occasionally hangs after a
+    # long run that also forked sandbox workers (seen once, 30 min, after all outputs were saved),
+    # which would stall a chain of runs: leave without it.
+    sys.stdout.flush()
+    os._exit(0)

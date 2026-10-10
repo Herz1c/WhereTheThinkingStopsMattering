@@ -32,7 +32,11 @@ def grams(text):
 def question_text(messages):
     """The user turn without the answer-format instruction the prompts append."""
     text = next(m["content"] for m in messages if m["role"] == "user")
-    return re.split(r"\n\n(?:Put the final answer|Answer with the label|The last line of your reply)", text)[0]
+    # Instructions are shared by every question of a source, so they would match each other:
+    # drop the evaluation's MBPP+ preamble and the answer-format lines the prompts append.
+    text = re.sub(r"^Write a complete Python solution[^\n]*\n\n", "", text)
+    return re.split(r"\n\n(?:Put the final answer|Answer with the label|The last line of your reply"
+                    r"|Implement it as a Python function)", text)[0]
 
 
 def main():
@@ -42,11 +46,13 @@ def main():
     parser.add_argument("--sources", default="gsm8k")
     parser.add_argument("--questions", default="questions/questions.jsonl")
     parser.add_argument("--threshold", type=float, default=0.3)
+    parser.add_argument("--write-clean", type=Path,
+                        help="Also write the training file without every row in a reported pair")
     arguments = parser.parse_args()
 
     sources = set(arguments.sources.split(","))
-    train = [json.loads(l) for l in Path(arguments.train).read_text().splitlines()]
-    train = [(i, question_text(r["prompt"])) for i, r in enumerate(train) if r["source"] in sources]
+    all_rows = [json.loads(l) for l in Path(arguments.train).read_text().splitlines()]
+    train = [(i, question_text(r["prompt"])) for i, r in enumerate(all_rows) if r["source"] in sources]
     index = defaultdict(set)
     train_grams = {}
     for i, text in train:
@@ -78,6 +84,11 @@ def main():
         q = next(e for e in evaluation if e["id"] == qid and e["dataset"] == dataset)
         print("  eval :", question_text(q["messages"])[:200].replace("\n", " "))
         print("  train:", texts[i][:200].replace("\n", " "))
+    if arguments.write_clean:
+        flagged = {i for *_, i in hits}
+        kept = [r for i, r in enumerate(all_rows) if i not in flagged]
+        arguments.write_clean.write_text("".join(json.dumps(r) + "\n" for r in kept))
+        print(f"\nwrote {arguments.write_clean}: {len(kept)} rows ({len(flagged)} removed)")
 
 
 if __name__ == "__main__":

@@ -28,12 +28,12 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from analysis.forced_stop_sweep import knows  # noqa: E402
+from stopping.grading import grade  # noqa: E402
 from utils.eval.recipe import SAMPLING  # noqa: E402
-from utils.train.rewards import is_task_correct  # noqa: E402
 
 MODEL = "Qwen/Qwen3-0.6B"
 MAX_TOKENS = 4096
+CARRY = ("tests", "entry_point", "kodcode_id", "subset")     # task-specific fields graders need
 CHUNK = 100     # questions per vLLM call; a stop loses at most one chunk
 
 
@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--questions", type=int, default=1500)
     parser.add_argument("--samples", type=int, default=4, help="Rollouts per question")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="Generation cap per rollout")
     parser.add_argument("--adapter", type=Path, help="A LoRA to generate with, e.g. to compare "
                                                       "checkpoints on validation questions")
     arguments = parser.parse_args()
@@ -92,10 +93,10 @@ def main():
     if arguments.adapter:
         rank = json.loads((arguments.adapter / "adapter_config.json").read_text())["r"]
     llm = LLM(model=MODEL, enable_prefix_caching=True, gpu_memory_utilization=0.85,
-              max_model_len=MAX_TOKENS + 1024, seed=arguments.seed,
+              max_model_len=arguments.max_tokens + 1024, seed=arguments.seed,
               enable_lora=rank is not None, max_lora_rank=rank or 16)
     lora = LoRARequest("candidate", 1, str(arguments.adapter.resolve())) if arguments.adapter else None
-    params = SamplingParams(**SAMPLING, n=arguments.samples, max_tokens=MAX_TOKENS, seed=arguments.seed)
+    params = SamplingParams(**SAMPLING, n=arguments.samples, max_tokens=arguments.max_tokens, seed=arguments.seed)
 
     started = time.monotonic()
     with path.open("a") as stream:
@@ -103,6 +104,7 @@ def main():
             chunk = todo[start:start + CHUNK]
             prompts = [tokenizer.apply_chat_template(q["prompt"], tokenize=False, add_generation_prompt=True,
                                                      enable_thinking=True) for q in chunk]
+            records = []
             for q, result in zip(chunk, llm.generate(prompts, params, lora_request=lora)):
                 for k, output in enumerate(result.outputs):
                     ids = list(output.token_ids)
@@ -110,15 +112,17 @@ def main():
                     # <think> and </think> are not special tokens in Qwen3 and stay.
                     text = tokenizer.decode(ids, skip_special_tokens=True)
                     closed = close_id in ids
-                    stream.write(json.dumps({
+                    records.append({
                         "question_id": q["question_id"], "sample": k, "source": q["source"],
                         "task": q["task"], "answer": q["answer"], "prompt": q["prompt"],
+                        **{key: q[key] for key in CARRY if key in q},
                         "tokens": len(ids), "closed": closed,
                         "thinking_tokens": ids.index(close_id) + 1 if closed else len(ids),
                         "finished": output.finish_reason == "stop",
-                        "correct": is_task_correct(text, q["answer"], q["task"]),
-                        "knows": knows(text, q["answer"], q["task"]),
-                        "text": text, "token_ids": ids}) + "\n")
+                        "text": text, "token_ids": ids})
+            for record, (strict, known_) in zip(records, grade([(r, r["text"]) for r in records])):
+                record["correct"], record["knows"] = strict, known_
+                stream.write(json.dumps(record) + "\n")
             stream.flush()
             finished = start + len(chunk)
             elapsed = (time.monotonic() - started) / 60
@@ -128,3 +132,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Everything is written and closed by now. vLLM's engine teardown occasionally hangs after a
+    # long run that also forked sandbox workers (seen once, 30 min, after all outputs were saved),
+    # which would stall a chain of runs: leave without it.
+    sys.stdout.flush()
+    os._exit(0)
