@@ -27,6 +27,9 @@ def grade(pairs):
         if row["task"] == "tool":
             from stopping.tool_tasks import grade_tool
             results[k] = grade_tool(row, text)
+        elif row["task"] == "constraint":
+            from stopping.constraint_tasks import grade_constraint
+            results[k] = grade_constraint(row, text)
         elif row["task"] != "code":
             results[k] = (is_task_correct(text, row["answer"], row["task"]),
                           knows(text, row["answer"], row["task"]))
