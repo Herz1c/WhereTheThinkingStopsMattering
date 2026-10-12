@@ -45,15 +45,75 @@ def loop_start(answer):
     return None
 
 
+def repeat_start(text, max_period=400, min_repeats=4, min_length=24):
+    """Start of the periodic tail of `text` (a unit of up to `max_period` characters repeated at
+    least `min_repeats` times up to the end), or None. Catches line loops and character loops such
+    as a quotation mark on a new line written until the cap."""
+    n, best = len(text), None
+    for k in range(1, min(max_period, n // min_repeats) + 1):
+        run = 0
+        while run < n - k and text[n - 1 - run] == text[n - 1 - run - k]:
+            run += 1
+        if run + k >= max(k * min_repeats, min_length):
+            start = n - run - k
+            best = start if best is None else min(best, start)
+    return best
+
+
+def from_rollouts(arguments):
+    """Loop cuts from constraint rollouts: replies capped after </think> whose tail repeats are cut
+    before the repeats, the wrapper closed if the constraint has one, and kept if the reply then
+    passes its constraints."""
+    from transformers import AutoTokenizer
+    from stopping.constraint_tasks import WRAPPERS, grade_constraint
+    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    rows = [json.loads(l) for l in (arguments.rollouts / "rollouts.jsonl").read_text().splitlines()]
+    examples, kinds, used = [], Counter(), set()
+    for r in rows:
+        if r["finished"] or not r["closed"]:
+            continue
+        kinds["capped after </think>"] += 1
+        ids = r["token_ids"]
+        close = ids.index(THINK_CLOSE)
+        answer = tokenizer.decode(ids[close + 1:], skip_special_tokens=True)
+        start = repeat_start(answer)
+        if start is None or r["question_id"] in used:
+            kinds["no periodic tail"] += 1
+            continue
+        reply = answer[:start].rstrip()
+        for c in r["answer"]:
+            if c["kind"] in WRAPPERS and not reply.endswith(WRAPPERS[c["kind"]][2]):
+                reply += "\n" + WRAPPERS[c["kind"]][2]
+        if not grade_constraint(r, "</think>" + reply)[0]:
+            kinds["cut reply fails its constraints"] += 1
+            continue
+        used.add(r["question_id"])
+        completion = ids[:close + 1] + tokenizer.encode(reply, add_special_tokens=False)
+        examples.append({"question_id": r["question_id"], "source": r["source"], "prompt": r["prompt"],
+                         "completion_ids": completion, "tokens": len(completion), "kind": "reply cut at its loop",
+                         "original_tokens": len(ids)})
+        kinds["kept"] += 1
+    arguments.out.mkdir(parents=True, exist_ok=True)
+    (arguments.out / "train.jsonl").write_text("".join(json.dumps(e) + "\n" for e in examples))
+    mean = sum(e["tokens"] for e in examples) / max(1, len(examples))
+    print(f"\n{len(examples)} loop examples from {len(rows)} rollouts, mean {mean:.0f} tokens")
+    for kind, n in kinds.most_common():
+        print(f"  {kind:32s} {n}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--rollouts", type=Path, help="Cut loops in these constraint rollouts instead of "
+                                                        "generating Dolly replies")
     parser.add_argument("--prompts", type=int, default=4000)
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--questions", default="questions/questions.jsonl")
     parser.add_argument("--seed", type=int, default=0)
     arguments = parser.parse_args()
+    if arguments.rollouts:
+        return from_rollouts(arguments)
 
     from datasets import load_dataset
     rows = list(load_dataset("databricks/databricks-dolly-15k", split="train"))

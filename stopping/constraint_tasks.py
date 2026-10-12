@@ -38,12 +38,29 @@ TEXT = {
     "end_question": "End your reply with a question for the reader.",
 }
 CONFLICTS = {frozenset(("exclaim", "end_question")), frozenset(("table", "exclaim"))}
+# Wrappers: the whole reply inside an opening and a closing marker. IFEval has one wrapper type
+# (double quotation marks), on which the model often fails to close and repeats the quote mark
+# until the cap. These three are different markers with the same structure; using them was a
+# decision of the author (2026-10-12), recorded in PROGRESS.md §7p as a grey-zone choice.
+WRAPPERS = {
+    "xml_wrap": ("Wrap your entire reply in <reply> and </reply> tags.", "<reply>", "</reply>"),
+    "bracket_wrap": ("Wrap your entire reply in square brackets, starting with [ and ending with ].", "[", "]"),
+    "fence_wrap": ("Put your entire reply inside a single fenced block that starts and ends with ```.", "```", "```"),
+}
+WRAP_COMPANIONS = ("no_digits", "emojis", "table")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF]")
 TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
 
 def check(constraint, reply):
     kind = constraint["kind"]
+    if kind in WRAPPERS:
+        _, opener, closer = WRAPPERS[kind]
+        body = reply.strip()
+        if not (body.startswith(opener) and body.endswith(closer) and len(body) > len(opener) + len(closer) + 10):
+            return False
+        inner = body[len(opener):len(body) - len(closer)]
+        return kind == "bracket_wrap" or closer not in inner    # brackets may nest; tags and fences may not
     if kind == "no_digits":
         return not re.search(r"\d", reply)
     if kind == "exclaim":
@@ -89,20 +106,29 @@ def build(arguments):
         if g and len(g & evaluation) / len(g) >= 0.15:
             dropped += 1
             continue
-        kinds = list(TEXT)
-        first = rng.choice(kinds)
-        chosen = [first]
-        if rng.random() < 0.4:
-            second = rng.choice([k for k in kinds if k != first and frozenset((k, first)) not in CONFLICTS])
-            chosen.append(second)
+        if arguments.wrappers:
+            chosen = [rng.choice(list(WRAPPERS))]
+            if rng.random() < 0.4:
+                chosen.append(rng.choice(WRAP_COMPANIONS))
+        else:
+            kinds = list(TEXT)
+            first = rng.choice(kinds)
+            chosen = [first]
+            if rng.random() < 0.4:
+                second = rng.choice([k for k in kinds if k != first and frozenset((k, first)) not in CONFLICTS])
+                chosen.append(second)
         constraints = [{"kind": k, **({"n": rng.choice((2, 3, 4))} if k == "emojis" else {})} for k in chosen]
-        sentences = " ".join(TEXT[c["kind"]].format(n=c.get("n")) for c in constraints)
-        out.append({"source": "dolly_constraints", "task": "constraint", "answer": constraints,
+        sentences = " ".join((WRAPPERS[c["kind"]][0] if c["kind"] in WRAPPERS else TEXT[c["kind"]]).format(n=c.get("n"))
+                             for c in constraints)
+        out.append({"source": "dolly_wrappers" if arguments.wrappers else "dolly_constraints",
+                    "task": "constraint", "answer": constraints,
                     "prompt": [{"role": "user", "content": f"{base}\n\n{sentences}"}]})
         if len(out) == arguments.count:
             break
     Path(arguments.out).write_text("".join(json.dumps(r) + "\n" for r in out))
     print(f"{len(out)} constrained Dolly prompts -> {arguments.out} ({dropped} dropped for 8-gram overlap)")
+    if arguments.wrappers:
+        print("  wrapper prompts; use a different --seed from the constraint set so the Dolly sample differs")
 
 
 def main():
@@ -111,6 +137,8 @@ def main():
     parser.add_argument("--count", type=int, default=3000)
     parser.add_argument("--questions", default="questions/questions.jsonl")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--wrappers", action="store_true",
+                        help="Prompts with one wrapper constraint (and maybe a content constraint) instead")
     build(parser.parse_args())
 
 
