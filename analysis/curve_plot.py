@@ -22,6 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--title", default="Length vs accuracy, every checkpoint (quick evaluation, 2 samples)")
     parser.add_argument("runs", nargs="+",
                         help='"label=run_dir"; a label ending in "*" marks the scaled-adapter family; '
                              '"label@dx,dy=run_dir" places the label dx,dy points from its marker')
@@ -70,10 +71,10 @@ def main():
                     fontsize=8.5, color=ink)
     ax.set_xlabel("tokens saved, geometric mean over the 4 benchmarks (%)")
     ax.set_ylabel("accuracy change, mean over the 4 benchmarks (pp)")
-    ax.set_title("Length vs accuracy, every checkpoint (quick evaluation, 2 samples)", color=ink, loc="left",
-                 fontsize=10)
-    ax.text(1.0, -0.13, "blue: separate runs   orange: the three-domain adapter at reduced strength   bars: 95% intervals",
-            transform=ax.transAxes, ha="right", color=muted, fontsize=8)
+    ax.set_title(arguments.title, color=ink, loc="left", fontsize=10)
+    note = ("blue: separate runs   orange: the three-domain adapter at reduced strength   bars: 95% intervals"
+            if curve else "bars: 95% paired-bootstrap intervals")
+    ax.text(1.0, -0.13, note, transform=ax.transAxes, ha="right", color=muted, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(color=grid, linewidth=0.6)
     fig.tight_layout()
