@@ -19,7 +19,7 @@ then `</think>` and:
 
 A forced answer is the model's best guess from what it has worked out, never a refusal: a
 refusal is always graded wrong, a guess sometimes passes. The budget sits above most correct
-answers' length (see PROGRESS.md), so solvable questions are rarely reached by it.
+answers' length (about the 85th percentile of correct KodCode rollouts), so solvable questions are rarely reached by it.
 Writes <out>/train.jsonl.
 """
 

@@ -1,15 +1,17 @@
 # Where the Thinking Stops Mattering
 
-Small reasoning models often reach the right answer and then keep thinking anyway. Tokens are being wasted usually
-by repeating things they already did, planning things they will never do or repeating nonsense until the
-token limit. This project teaches Qwen3-0.6B to stop where its thinking stops mattering. The changes are purely in the models weights
-. Same prompts, same sampling, same token caps, thinking still on.
+Small reasoning models often reach the right answer and then keep writing: re-checking a sum
+they already did, planning a function they never write out, repeating a closing quote until the
+token limit. This project teaches Qwen3-0.6B to stop where its own thinking stops mattering, with
+the change in the weights only: same prompts, same sampling, same token caps, thinking still on.
 
-**Final result: 43.5% fewer generated tokens at −0.77 pp accuracy**, measured on 22,072 responses
-over four benchmarks (code, function calling, instruction following, arithmetic), with 95%
-paired intervals [42.2%, 44.9%] and [−1.49, −0.10] pp.
+**Final result: about 43% fewer generated tokens at about −1 pp accuracy**, measured on 22,072
+responses over four benchmarks (code, function calling, instruction following, arithmetic). Two full
+evaluations of the same adapter gave +43.3% / −1.17 pp and +43.5% / −0.77 pp: vLLM generation is
+not bit-reproducible across runs, so the spread between them is part of the result. On HumanEval,
+which played no part in development, the saving is 65% at −1.2 pp.
 
-Student project, October 2026 ran on one RTX 5060 Ti (16 GB). Negative results are kept
+Independent student project, October 2026, on one RTX 5060 Ti (16 GB). Negative results are kept
 below with the positive ones: most of what was tried did not work, and why it did not is most of
 what was learned.
 
@@ -17,57 +19,103 @@ what was learned.
   <img src="figures/demo_mbpp.svg" alt="The same MBPP+ task answered by base Qwen3-0.6B and by the trained model, streamed side by side at the same speed" width="900">
 </p>
 
-<sub>Real outputs from the evaluation run, the same task for both models, streamed at the same number of tokens per second. The example is the pair closest
-to the benchmarks median length ratio, not a hand-picked extreme
+<sub>Real outputs from the evaluation run, the same task and sample slot for both models, both
+answers correct, streamed at the same number of tokens per second. The example is the pair closest
+to the benchmark's median length ratio among long base answers, not a hand-picked extreme
 (`analysis/demo_svg.py`). A math example: [figures/demo_svamp.svg](figures/demo_svamp.svg).</sub>
 
 ## Result
 
 | Benchmark | What it tests | Tokens saved | Accuracy change |
 | --- | --- | ---: | ---: |
-| MBPP+ | writing a Python function | **65.0%** [62.9, 67.2] | −0.23 pp [−1.92, +1.49] |
-| IFEval | following format instructions | **39.0%** [35.1, 42.8] | −0.58 pp [−2.22, +1.16] |
-| BFCL (3 subsets) | function calling | **26–35%** | −0.44 to −1.31 pp (all intervals cover 0) |
-| SVAMP | grade-school arithmetic | **30.9%** [28.5, 33.1] | −1.21 pp [−2.00, −0.44] |
-| **Average** | | **43.5%** [42.2, 44.9] | **−0.77 pp** [−1.49, −0.10] |
+| MBPP+ | writing a Python function | **64.7%** [62.5, 66.8] | −1.72 pp [−3.31, −0.17] |
+| IFEval | following format instructions | **38.9%** [35.1, 42.5] | −0.65 pp [−2.31, +1.09] |
+| BFCL (3 subsets) | function calling | **26–35%** | −0.56 to −1.00 pp (all intervals cover 0) |
+| SVAMP | grade-school arithmetic | **30.7%** [28.3, 33.0] | −1.45 pp [−2.29, −0.66] |
+| **Average** | | **43.3%** [41.9, 44.6] | **−1.17 pp** [−1.83, −0.50] |
+| *Average, other full run* | | *43.5%* [42.2, 44.9] | *−0.77 pp* [−1.49, −0.10] |
 
 Tokens saved is the evaluation's own metric: per benchmark one minus the ratio of summed tokens
 (thinking included, a response cut off at the cap counts in full and as wrong), then the geometric
-mean over benchmarks. Accuracy change is the mean over benchmarks. 8 samples per question.
+mean over benchmarks. Accuracy change is the mean over benchmarks. 8 samples per question. The
+per-benchmark rows are the run made with the unmodified `evaluate.py` (its `results.json` is the
+submitted one); only 6,092 of 22,072 responses are identical between the two runs.
 
 <p align="center"><img src="figures/benchmark_bars.png" alt="Mean tokens and accuracy per benchmark, base vs trained" width="760"></p>
 
-What the numbers do not show: SVAMP is the one benchmark whose accuracy interval excludes zero.
-Every design decision was made while looking at these four benchmarks (never training on them),
-so a held-out check on HumanEval and GSM8K test is being run: [Held-out check](#held-out-check).
+What the numbers do not show: the accuracy loss is concentrated in SVAMP and MBPP+, whose
+intervals exclude zero in one of the two runs. Every design decision was made while looking at
+these four benchmarks (never training on them), so the selection may flatter them; the
+[held-out check](#held-out-check) on HumanEval shows the code result carrying over.
 
 ## What I built
 
-The method has two stages, both trained as a LoRA (r = 16) on the models own outputs, never on
-evaluation data.
+The method has two stages, both trained as a LoRA (r = 16) on the model's own outputs, never on
+evaluation data:
 
-1. **Stop-point distillation** For each training task sample the base models own
-   reasoning, force `</think>` at paragraph boundaries, and find the earliest cut where the
-   answer is right. Train on *own reasoning up to that cut + `</think>` + answer*. Three rules
-   were needed prevent acuracy loss accuracy, each found by looking at failures.
+1. **Stop-point distillation** (supervised). For each training task, sample the base model's own
+   reasoning, force `</think>` at paragraph boundaries, and find the earliest cut where the forced
+   answer is verifiably right (unit tests, the gold number, the right function call, a checked
+   format constraint). Train on *own reasoning up to that cut + `</think>` + answer*. Three rules
+   were needed to keep accuracy, each found by reading failures:
    - **Code: stop only after the function is written out in the reasoning.** Oracle stops let the
-     model stop after a one paragraph plan and write untried code into the answer (MBPP −5.4 pp),
+     model stop after a one-paragraph plan and write untried code into the answer (MBPP −5.4 pp);
      requiring a drafted `def` before the stop brought MBPP back.
-   - **Give up with a best guess after a long unproductive attempt.** Attempts that reach the token limit
-     are wrong anyway and hold almost a third of the base models code tokens. Cutting them at 2,048
-     thinking tokens with the models own best answer cut capped MBPP responses from 49 to 6 per
-     756, with no accuracy loss.
+   - **Give up with a best guess after a long unproductive attempt.** Attempts that run to the cap
+     are wrong anyway and hold nearly a third of the base model's code tokens; cutting them at 2,048
+     thinking tokens with the model's own best answer cut capped MBPP responses from 49 to 6 per
+     756, with no accuracy cost.
    - **Instruction following needs its own verifiable data.** Dolly instructions with format
-     constraints of five types IFEval doesnt use (no digits, Markdown table, emoji...) halved
-     IFEval's reasoning length with no impact on accuracy.
+     constraints of five types IFEval does not use (no digits, Markdown table, emoji, …) halved
+     IFEval's reasoning length (296 → 134 median tokens) with no accuracy loss.
 2. **GRPO** from that adapter, with reward `1[correct] · (1 − α · length / domain mean length)`:
-   the length penalty is normalised per domain because the metric is a ratio of sums. A wrong
-   or capped answer earns 0 whatever its length. Supervised stops cannot teach when re-checking
-   pays off. On arithmetic the models checks sometimes catch an error and sometimes just waste tokens.
-   RL learned to keep the useful ones - SVAMP's saving went from 14% to 31% at the same accuracy.
+   the length penalty is normalised per domain because the metric is a ratio of sums, and a wrong
+   or capped answer earns 0 whatever its length. Supervised stops cannot teach *when* re-checking
+   pays off; on arithmetic the model's checks sometimes catch an error and sometimes are waste.
+   RL learned to keep the useful ones: SVAMP's saving went from 14% to 31% at the same accuracy.
 
 Training data: GSM8K train, KodCode-Light-RL-10K, Glaive function calling v2, databricks-dolly-15k
-(with own constraints). 11 function-calling rows overlapping with eval were removed.
+(with own constraints). Every source was checked for 8-gram overlap with all evaluation questions;
+11 overlapping function-calling rows were removed. One grey zone, disclosed: the GRPO instruction
+pool also holds Dolly prompts with wrapper constraints (`<reply>` tags, brackets, a fenced block),
+added after reading IFEval's failures, whose loops mostly come from its "wrap in double quotes"
+constraint. No IFEval prompt, constraint or verifier is used; the structure is shared.
+
+## What is new here, and what is not
+
+The building blocks are not new. Forcing a trial answer partway through the reasoning to see whether
+the model already knows it is the basis of [DEER](https://arxiv.org/abs/2504.15895) (a training-free
+early exit). Fine-tuning on reasoning traces with the redundant end cut off, located with the
+reference answer, is [Self-Braking Tuning](https://arxiv.org/abs/2505.14604) and, with a confidence
+signal, [ConCISE](https://arxiv.org/abs/2505.04881). Reinforcement learning with a length penalty or
+budget is [ThinkPrune](https://arxiv.org/abs/2504.01296), [L1](https://arxiv.org/abs/2503.04697) and
+the long2short stage of [Kimi k1.5](https://arxiv.org/abs/2501.12599); suppressing reflection words
+at decoding time is [NoWait](https://arxiv.org/abs/2506.08343).
+
+What this project adds, to my knowledge after a limited search:
+
+1. **Where an oracle says the answer is right is not where the model knows it.** Stops placed at the
+   earliest point where a forced answer passes the tests teach the model to stop *before doing the
+   work*: on code it stopped drafting the function in its reasoning (98% → 8% of answers) and wrote
+   untried code (MBPP+ −5.4 pp). Constraining the stop to come after the model's own draft fixes it.
+   The failure is invisible on the training distribution and shows only on a related benchmark.
+2. **A controlled SFT-vs-RL comparison on one behaviour: re-checking an answer already reached.** On
+   arithmetic, every variant of stop data that shortened SVAMP by 19–48% (stop margins, later cut
+   rules, give-up budgets) cost 1.5–6.1 pp of its accuracy; the checks are not waste for a 0.6B model.
+   GRPO from the same model and data pools broke that trade (SVAMP saving 14% → 31% at about the same
+   accuracy: −1.21 and −1.45 pp in the two runs against −1.20 pp before), consistent with learning to
+   check selectively, which per-example stop targets cannot express.
+3. **Stop distillation beyond math, with verifiers that avoid the evaluation's own data**: unit tests
+   for code, call matching for function calling, and format constraints of types IFEval does not use
+   for instruction following. The last transferred to IFEval's planning length (median reasoning
+   296 → 134 tokens) at no accuracy cost; math stop data, in contrast, transferred to nothing.
+4. **Two smaller observations.** A learned stop behaves like a switch: scaling the LoRA down to 0.75
+   or 0.5 removes it entirely instead of giving a shorter-but-safer model. And because the metric is
+   a ratio of sums, a handful of attempts that run to the cap dominate it, which makes "give up with
+   a best guess" worth as much as any reasoning-level change on code.
+
+Everything runs on one 16 GB consumer GPU and is published with its failures; the method behind the
+ThinkingCap models it was benchmarked against is not public.
 
 ## Along the way
 
@@ -79,7 +127,7 @@ Training data: GSM8K train, KodCode-Light-RL-10K, Glaive function calling v2, da
 | Mix C: oracle stops on math, code, tools | 37.2% | −1.80 pp |
 | Mix E: + code drafts, give-up | 29.4% | −0.45 pp (all intervals cover 0) |
 | Mix G: + instruction stops | 34.6% | −0.85 pp |
-| **GRPO from mix G** | **43.5%** | **−0.77 pp** |
+| **GRPO from mix G** (two runs) | **43.3% / 43.5%** | **−1.17 / −0.77 pp** |
 
 What did not work, each on the evaluation's quick 2-sample run unless noted:
 
@@ -95,8 +143,18 @@ What did not work, each on the evaluation's quick 2-sample run unless noted:
 
 ## Held-out check
 
-Pending: HumanEval (164 tasks × 4) and GSM8K test (500 × 2) for base, mix G and GRPO, sets that
-played no part in any decision (`analysis/heldout_eval.py`).
+Two sets that played no part in any decision, base against GRPO (`analysis/heldout_eval.py`):
+
+| Set | Tokens saved | Accuracy change |
+| --- | ---: | ---: |
+| HumanEval (164 tasks × 4) | **65.0%** [62.0, 67.9] | −1.22 pp [−5.03, +2.74] |
+| GSM8K test (500 × 2) | 44.3% [41.8, 47.0] | +35.2 pp strict, +10.9 pp lenient |
+
+HumanEval is the real held-out test: different tasks from MBPP+, never looked at, and the MBPP+
+result carries over almost exactly. GSM8K test holds out questions but not the distribution (same
+source and prompt format as the GSM8K training data), so its accuracy gain is not generalisation:
+the base model fails the strict `Final answer:` format on a quarter of the answers it knows and
+hits the token cap on 27.5% of them; the trained model learned the format and to finish.
 
 ## How the repository is laid out
 
@@ -123,8 +181,8 @@ python stopping/give_up_examples.py runs/rollouts_code --out runs/give_up_code -
 # mix G = draft code stops (one per question) + give-up rows + tool and math rows + constraint stops, concatenated
 python stopping/train_lora.py --data runs/train_mixG.jsonl --out checkpoints/stoppoint_mixG
 python stopping/train_grpo.py --init checkpoints/stoppoint_mixG --out checkpoints/grpo --steps 50 --prompts 24
-python scripts/resumable_eval.py --out runs/grpo_full --adapter checkpoints/grpo
-python compare.py runs/base runs/grpo_full
+python evaluate.py --out runs/grpo --adapter checkpoints/grpo
+python compare.py runs/base runs/grpo
 ```
 
 Compute for everything in this repository, including all failed variants: about 65 GPU-hours on
@@ -134,10 +192,11 @@ one RTX 5060 Ti.
 
 | Level | Claim | Support |
 | --- | --- | --- |
-| A | 43.5% fewer tokens at −0.77 pp on the four benchmarks | full evaluation, 22,072 responses, paired bootstrap |
+| A | about 43% fewer tokens at about −1 pp on the four benchmarks | two full evaluations, 22,072 responses each, paired bootstrap |
 | B | each of the three stop rules is needed | ablations on the quick evaluation (2 samples), one run each |
 | B | GRPO's gain comes from selective re-checking on math | SVAMP saving ×2 at unchanged accuracy; training-pool logs |
-| C | the result holds off the four benchmarks | held-out check (pending) |
+| B | the code result holds off the four benchmarks | HumanEval: 65% at −1.2 pp, interval covers 0 |
+| C | the math result holds off the four benchmarks | GSM8K test saves 44%, but it is in-distribution |
 | Missing | the method scales to larger models | next: Qwen3-1.7B |
 
 ## Origin and license

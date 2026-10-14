@@ -5,7 +5,7 @@
 Supervised stop data teaches *where* to stop from examples cut by an oracle. It cannot teach
 the model *when* its own re-checking pays off: on SVAMP-like math the post-answer checks
 sometimes catch an error and sometimes are wasted, and stop data either keeps them all or drops
-them all (PROGRESS.md §7m, §7o). Reinforcement learning with a reward for being right and short
+them all (see IDEA.md, "What did not work"). Reinforcement learning with a reward for being right and short
 can, because a check that saves an error earns more than a short wrong answer.
 
 Per step: draw prompts from the training pools (GSM8K, KodCode, Glaive, constrained Dolly; never

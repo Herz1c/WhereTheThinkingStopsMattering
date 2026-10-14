@@ -1,0 +1,92 @@
+[
+  {
+    "label": "mix C: stop SFT, oracle stops",
+    "run": "runs/stoppoint_mixC_full",
+    "offset": [
+      8.0,
+      -14.0
+    ],
+    "tokens_saved": 0.37150430651069233,
+    "tokens_ci": [
+      0.34605242358044064,
+      0.397785127515123
+    ],
+    "accuracy": -0.018015416104313953,
+    "accuracy_ci": [
+      -0.02624203007180999,
+      -0.009928621199840594
+    ]
+  },
+  {
+    "label": "mix E: + code drafts, give-up",
+    "run": "runs/stoppoint_mixE_full",
+    "offset": [
+      8.0,
+      8.0
+    ],
+    "tokens_saved": 0.2937315223122907,
+    "tokens_ci": [
+      0.2792753617491877,
+      0.3082914464887265
+    ],
+    "accuracy": -0.004453596734442344,
+    "accuracy_ci": [
+      -0.011316340792452738,
+      0.0019838767524621246
+    ]
+  },
+  {
+    "label": "mix G: + instruction stops",
+    "run": "runs/stoppoint_mixG_full",
+    "offset": [
+      8.0,
+      6.0
+    ],
+    "tokens_saved": 0.34569140084122896,
+    "tokens_ci": [
+      0.3301906574976545,
+      0.361680378532245
+    ],
+    "accuracy": -0.00853296211943394,
+    "accuracy_ci": [
+      -0.01491766049515154,
+      -0.0021480412629341127
+    ]
+  },
+  {
+    "label": "GRPO, run 1",
+    "run": "runs/grpo_full",
+    "offset": [
+      -8.0,
+      10.0
+    ],
+    "tokens_saved": 0.4351327342789968,
+    "tokens_ci": [
+      0.42188870388157906,
+      0.44902560582943163
+    ],
+    "accuracy": -0.007658205398096751,
+    "accuracy_ci": [
+      -0.01490190409869534,
+      -0.0010212484810364912
+    ]
+  },
+  {
+    "label": "GRPO, run 2 (submitted)",
+    "run": "runs/grpo_submission",
+    "offset": [
+      -8.0,
+      -16.0
+    ],
+    "tokens_saved": 0.4326793108521797,
+    "tokens_ci": [
+      0.4189520598407012,
+      0.44619376443520925
+    ],
+    "accuracy": -0.01166185274428111,
+    "accuracy_ci": [
+      -0.018332378785489344,
+      -0.005037032124091694
+    ]
+  }
+]

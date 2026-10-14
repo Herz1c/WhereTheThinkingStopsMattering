@@ -41,7 +41,7 @@ CONFLICTS = {frozenset(("exclaim", "end_question")), frozenset(("table", "exclai
 # Wrappers: the whole reply inside an opening and a closing marker. IFEval has one wrapper type
 # (double quotation marks), on which the model often fails to close and repeats the quote mark
 # until the cap. These three are different markers with the same structure; using them was a
-# decision of the author (2026-10-12), recorded in PROGRESS.md §7p as a grey-zone choice.
+# deliberate grey-zone choice, disclosed in README.md and IDEA.md.
 WRAPPERS = {
     "xml_wrap": ("Wrap your entire reply in <reply> and </reply> tags.", "<reply>", "</reply>"),
     "bracket_wrap": ("Wrap your entire reply in square brackets, starting with [ and ending with ].", "[", "]"),
