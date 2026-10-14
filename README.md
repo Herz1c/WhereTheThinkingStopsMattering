@@ -1,7 +1,7 @@
 # Where the Thinking Stops Mattering
 
 Small reasoning models often reach the right answer and then keep thinking anyway. Tokens are being wasted usually
-by repeating things they already did, planning things they will never do, repeating nonsense until the
+by repeating things they already did, planning things they will never do or repeating nonsense until the
 token limit. This project teaches Qwen3-0.6B to stop where its thinking stops mattering. The changes are purely in the models weights
 . Same prompts, same sampling, same token caps, thinking still on.
 
@@ -17,9 +17,8 @@ what was learned.
   <img src="figures/demo_mbpp.svg" alt="The same MBPP+ task answered by base Qwen3-0.6B and by the trained model, streamed side by side at the same speed" width="900">
 </p>
 
-<sub>Real outputs from the evaluation run, the same task and sample slot for both models, both
-answers correct, streamed at the same number of tokens per second. The example is the pair closest
-to the benchmark's median length ratio among long base answers, not a hand-picked extreme
+<sub>Real outputs from the evaluation run, the same task for both models, streamed at the same number of tokens per second. The example is the pair closest
+to the benchmarks median length ratio, not a hand-picked extreme
 (`analysis/demo_svg.py`). A math example: [figures/demo_svamp.svg](figures/demo_svamp.svg).</sub>
 
 ## Result
