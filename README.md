@@ -43,33 +43,31 @@ so a held-out check on HumanEval and GSM8K test is being run: [Held-out check](#
 
 ## What I built
 
-The method has two stages, both trained as a LoRA (r = 16) on the model's own outputs, never on
-evaluation data:
+The method has two stages, both trained as a LoRA (r = 16) on the models own outputs, never on
+evaluation data.
 
-1. **Stop-point distillation** (supervised). For each training task, sample the base model's own
-   reasoning, force `</think>` at paragraph boundaries, and find the earliest cut where the forced
-   answer is verifiably right (unit tests, the gold number, the right function call, a checked
-   format constraint). Train on *own reasoning up to that cut + `</think>` + answer*. Three rules
-   were needed to keep accuracy, each found by reading failures:
+1. **Stop-point distillation** For each training task sample the base models own
+   reasoning, force `</think>` at paragraph boundaries, and find the earliest cut where the
+   answer is right. Train on *own reasoning up to that cut + `</think>` + answer*. Three rules
+   were needed prevent acuracy loss accuracy, each found by looking at failures.
    - **Code: stop only after the function is written out in the reasoning.** Oracle stops let the
-     model stop after a one-paragraph plan and write untried code into the answer (MBPP −5.4 pp);
+     model stop after a one paragraph plan and write untried code into the answer (MBPP −5.4 pp),
      requiring a drafted `def` before the stop brought MBPP back.
-   - **Give up with a best guess after a long unproductive attempt.** Attempts that run to the cap
-     are wrong anyway and hold nearly a third of the base model's code tokens; cutting them at 2,048
-     thinking tokens with the model's own best answer cut capped MBPP responses from 49 to 6 per
-     756, with no accuracy cost.
+   - **Give up with a best guess after a long unproductive attempt.** Attempts that reach the token limit
+     are wrong anyway and hold almost a third of the base models code tokens. Cutting them at 2,048
+     thinking tokens with the models own best answer cut capped MBPP responses from 49 to 6 per
+     756, with no accuracy loss.
    - **Instruction following needs its own verifiable data.** Dolly instructions with format
-     constraints of five types IFEval does not use (no digits, Markdown table, emoji, …) halved
-     IFEval's reasoning length (296 → 134 median tokens) with no accuracy loss.
+     constraints of five types IFEval doesnt use (no digits, Markdown table, emoji...) halved
+     IFEval's reasoning length with no impact on accuracy.
 2. **GRPO** from that adapter, with reward `1[correct] · (1 − α · length / domain mean length)`:
-   the length penalty is normalised per domain because the metric is a ratio of sums, and a wrong
-   or capped answer earns 0 whatever its length. Supervised stops cannot teach *when* re-checking
-   pays off; on arithmetic the model's checks sometimes catch an error and sometimes are waste.
-   RL learned to keep the useful ones: SVAMP's saving went from 14% to 31% at the same accuracy.
+   the length penalty is normalised per domain because the metric is a ratio of sums. A wrong
+   or capped answer earns 0 whatever its length. Supervised stops cannot teach when re-checking
+   pays off. On arithmetic the models checks sometimes catch an error and sometimes just waste tokens.
+   RL learned to keep the useful ones - SVAMP's saving went from 14% to 31% at the same accuracy.
 
 Training data: GSM8K train, KodCode-Light-RL-10K, Glaive function calling v2, databricks-dolly-15k
-(with own constraints). Every source was checked for 8-gram overlap with all evaluation questions;
-11 overlapping function-calling rows were removed.
+(with own constraints). 11 function-calling rows overlapping with eval were removed.
 
 ## Along the way
 
