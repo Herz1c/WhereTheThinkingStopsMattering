@@ -1,15 +1,15 @@
 # Where the Thinking Stops Mattering
 
-Small reasoning models often reach the right answer and then keep writing: re-checking a sum
-they already did, planning a function they never write out, repeating a closing quote until the
-token limit. This project teaches Qwen3-0.6B to stop where its own thinking stops mattering, with
-the change in the weights only: same prompts, same sampling, same token caps, thinking still on.
+Small reasoning models often reach the right answer and then keep thinking anyway. Tokens are being wasted usually
+by repeating things they already did, planning things they will never do, repeating nonsense until the
+token limit. This project teaches Qwen3-0.6B to stop where its thinking stops mattering. The changes are purely in the models weights
+. Same prompts, same sampling, same token caps, thinking still on.
 
 **Final result: 43.5% fewer generated tokens at −0.77 pp accuracy**, measured on 22,072 responses
 over four benchmarks (code, function calling, instruction following, arithmetic), with 95%
-paired-bootstrap intervals [42.2%, 44.9%] and [−1.49, −0.10] pp.
+paired intervals [42.2%, 44.9%] and [−1.49, −0.10] pp.
 
-Independent student project, October 2026, on one RTX 5060 Ti (16 GB). Negative results are kept
+Student project, October 2026 ran on one RTX 5060 Ti (16 GB). Negative results are kept
 below with the positive ones: most of what was tried did not work, and why it did not is most of
 what was learned.
 
