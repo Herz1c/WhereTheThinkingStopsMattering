@@ -1,27 +1,25 @@
 # Where the Thinking Stops Mattering
 
-Small reasoning models often reach the right answer and then keep writing: re-checking a sum
-they already did, planning a function they never write out, repeating a closing quote until the
+Small reasoning models often reach the right answer and then keep thinking anyway. The models waste tons 
+of tokens re-checking something they already did, planning something they will never do or repeating nonsense until the
 token limit. This project teaches Qwen3-0.6B to stop where its own thinking stops mattering, with
-the change in the weights only: same prompts, same sampling, same token caps, thinking still on.
+the change in the weights only. Benchmarked on the same prompts, same sampling, same token limits, thinking still on.
 
 **Final result: about 43% fewer generated tokens at about −1 pp accuracy**, measured on 22,072
 responses over four benchmarks (code, function calling, instruction following, arithmetic). Two full
-evaluations of the same adapter gave +43.3% / −1.17 pp and +43.5% / −0.77 pp: vLLM generation is
-not bit-reproducible across runs, so the spread between them is part of the result. On HumanEval,
+evaluations gave +43.3% / −1.17 pp and +43.5% / −0.77 pp. vLLM generation is
+not perfectly reproducible across runs, so the spread between them is part of the result. On HumanEval,
 which played no part in development, the saving is 65% at −1.2 pp.
 
-Independent student project, October 2026, on one RTX 5060 Ti (16 GB). Negative results are kept
-below with the positive ones: most of what was tried did not work, and why it did not is most of
+Student project, October 2026, on one RTX 5060 Ti (16 GB). Negative results are kept
+below with the positive ones. Most of what was tried did not work, and why it did not is most of
 what was learned.
 
 <p align="center">
   <img src="figures/demo_mbpp.svg" alt="The same MBPP+ task answered by base Qwen3-0.6B and by the trained model, streamed side by side at the same speed" width="900">
 </p>
 
-<sub>Real outputs from the evaluation run, the same task and sample slot for both models, both
-answers correct, streamed at the same number of tokens per second. The example is the pair closest
-to the benchmark's median length ratio among long base answers, not a hand-picked extreme
+<sub>Real outputs from the evaluation run, the same task for both models, streamed at the same number of tokens per second. The example is the pair closest to the benchmark's median length ratio among long base answers, not a hand picked extreme
 (`analysis/demo_svg.py`). A math example: [figures/demo_svamp.svg](figures/demo_svamp.svg).</sub>
 
 ## Result
@@ -35,38 +33,35 @@ to the benchmark's median length ratio among long base answers, not a hand-picke
 | **Average** | | **43.3%** [41.9, 44.6] | **−1.17 pp** [−1.83, −0.50] |
 | *Average, other full run* | | *43.5%* [42.2, 44.9] | *−0.77 pp* [−1.49, −0.10] |
 
-Tokens saved is the evaluation's own metric: per benchmark one minus the ratio of summed tokens
-(thinking included, a response cut off at the cap counts in full and as wrong), then the geometric
-mean over benchmarks. Accuracy change is the mean over benchmarks. 8 samples per question. The
+Tokens saved is the evaluation's own metric: per benchmark one minus the ratio of summed tokens, 
+then the mean over benchmarks. Accuracy change is the mean over benchmarks. 8 samples per question. The
 per-benchmark rows are the run made with the unmodified `evaluate.py` (its `results.json` is the
 submitted one); only 6,092 of 22,072 responses are identical between the two runs.
 
 <p align="center"><img src="figures/benchmark_bars.png" alt="Mean tokens and accuracy per benchmark, base vs trained" width="760"></p>
 
-What the numbers do not show: the accuracy loss is concentrated in SVAMP and MBPP+, whose
+What the numbers fail to show, is that the the accuracy loss is concentrated in SVAMP and MBPP+, whose
 intervals exclude zero in one of the two runs. Every design decision was made while looking at
 these four benchmarks (never training on them), so the selection may flatter them; the
 [held-out check](#held-out-check) on HumanEval shows the code result carrying over.
 
 ## What I built
 
-The method has two stages, both trained as a LoRA (r = 16) on the model's own outputs, never on
-evaluation data:
+The method has two stages, both trained as a LoRA (r = 16) on the models own outputs.
 
-1. **Stop-point distillation** (supervised). For each training task, sample the base model's own
+1. **Stop-point distillation**. For each training task, sample the base models own
    reasoning, force `</think>` at paragraph boundaries, and find the earliest cut where the forced
-   answer is verifiably right (unit tests, the gold number, the right function call, a checked
-   format constraint). Train on *own reasoning up to that cut + `</think>` + answer*. Three rules
-   were needed to keep accuracy, each found by reading failures:
-   - **Code: stop only after the function is written out in the reasoning.** Oracle stops let the
+   answer is right. Train on *own reasoning up to that cut + `</think>` + answer*. Three rules
+   were needed to keep accuracy, each found by analyzing failures:
+   - **Stop only after the function is written out in the reasoning.** Oracle stops let the
      model stop after a one-paragraph plan and write untried code into the answer (MBPP −5.4 pp);
      requiring a drafted `def` before the stop brought MBPP back.
-   - **Give up with a best guess after a long unproductive attempt.** Attempts that run to the cap
-     are wrong anyway and hold nearly a third of the base model's code tokens; cutting them at 2,048
-     thinking tokens with the model's own best answer cut capped MBPP responses from 49 to 6 per
+   - **Give up with a best guess after a long, bad attempt.** Attempts that run to the token limit
+     are wrong anyway and hold a third of the base models code tokens. Cutting them at 2,048
+     thinking tokens with the models own best answer cut capped MBPP responses from 49 to 6 per
      756, with no accuracy cost.
    - **Instruction following needs its own verifiable data.** Dolly instructions with format
-     constraints of five types IFEval does not use (no digits, Markdown table, emoji, …) halved
+     constraints of five types IFEval does not use (no digits, Markdown table, emoji) halved
      IFEval's reasoning length (296 → 134 median tokens) with no accuracy loss.
 2. **GRPO** from that adapter, with reward `1[correct] · (1 − α · length / domain mean length)`:
    the length penalty is normalised per domain because the metric is a ratio of sums, and a wrong
