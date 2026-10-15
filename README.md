@@ -76,18 +76,7 @@ pool also holds dolly prompts with wrapper constraints (`<reply>` tags, brackets
 added after reading IFEval's failures, whose loops mostly come from its "wrap in double quotes"
 constraint. No IFEval prompt, constraint or verifier is used; the structure is shared.
 
-## What is new here, and what is not
-
-The methods themselves are nothing new. Forcing a trial answer partway through the reasoning to see whether
-the model already knows it is the basis of [DEER](https://arxiv.org/abs/2504.15895) (a training-free
-early exit). Fine-tuning on reasoning traces with the redundant end cut off, located with the
-reference answer, is [Self-Braking Tuning](https://arxiv.org/abs/2505.14604) and, with a confidence
-signal, [ConCISE](https://arxiv.org/abs/2505.04881). Reinforcement learning with a length penalty or
-budget is [ThinkPrune](https://arxiv.org/abs/2504.01296), [L1](https://arxiv.org/abs/2503.04697) and
-the long2short stage of [Kimi k1.5](https://arxiv.org/abs/2501.12599); suppressing reflection words
-at decoding time is [NoWait](https://arxiv.org/abs/2506.08343).
-
-What this project adds:
+## What is new here
 
 1. **Where an oracle says the answer is right is not where the model knows it.** Stops placed at the
    earliest point where a forced answer passes the tests teach the model to stop *before doing the
@@ -180,18 +169,7 @@ python compare.py runs/base runs/grpo
 Compute for everything in this repository, including all failed variants: about 65 GPU-hours on
 one RTX 5060 Ti.
 
-## Evidence ladder
-
-| Level | Claim | Support |
-| --- | --- | --- |
-| A | about 43% fewer tokens at about −1 pp on the four benchmarks | two full evaluations, 22,072 responses each, paired bootstrap |
-| B | each of the three stop rules is needed | ablations on the quick evaluation (2 samples), one run each |
-| B | GRPO's gain comes from selective re-checking on math | SVAMP saving ×2 at unchanged accuracy; training-pool logs |
-| B | the code result holds off the four benchmarks | HumanEval: 65% at −1.2 pp, interval covers 0 |
-| C | the math result holds off the four benchmarks | GSM8K test saves 44%, but it is in-distribution |
-| Missing | the method scales to larger models | next: Qwen3-1.7B |
-
-## Origin and license
+## Origin
 
 This project started as a response to the
 [ThinkingCap Test](https://github.com/BottleCapAI/ThinkingCap-Test) by BottleCapAI.
