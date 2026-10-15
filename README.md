@@ -5,7 +5,7 @@ of tokens re-checking something they already did, planning something they will n
 token limit. This project teaches Qwen3-0.6B to stop where its own thinking stops mattering, with
 the change in the weights only. Benchmarked on the same prompts, same sampling, same token limits, thinking still on.
 
-**Final result: about 43% fewer generated tokens at about −1 pp accuracy**, measured on 22,072
+**Final result is about 43% fewer generated tokens at about −1 pp accuracy**, measured on 22,072
 responses over four benchmarks (code, function calling, instruction following, arithmetic). Two full
 evaluations gave +43.3% / −1.17 pp and +43.5% / −0.77 pp. vLLM generation is
 not perfectly reproducible across runs, so the spread between them is part of the result. On HumanEval,
@@ -47,7 +47,7 @@ these four benchmarks (never training on them), so the selection may flatter the
 
 ## What I built
 
-The method has two stages, both trained as a LoRA (r = 16) on the models own outputs.
+A method with two stages, both trained as a LoRA (r = 16) on the models own outputs.
 
 1. **Stop-point distillation**. For each training task, sample the base models own
    reasoning, force `</think>` at paragraph boundaries, and find the earliest cut where the forced
@@ -69,16 +69,16 @@ The method has two stages, both trained as a LoRA (r = 16) on the models own out
    pays off; on arithmetic the model's checks sometimes catch an error and sometimes are waste.
    RL learned to keep the useful ones: SVAMP's saving went from 14% to 31% at the same accuracy.
 
-Training data: GSM8K train, KodCode-Light-RL-10K, Glaive function calling v2, databricks-dolly-15k
-(with own constraints). Every source was checked for 8-gram overlap with all evaluation questions;
-11 overlapping function-calling rows were removed. One grey zone, disclosed: the GRPO instruction
-pool also holds Dolly prompts with wrapper constraints (`<reply>` tags, brackets, a fenced block),
+Training data consisted of the following: GSM8K train, KodCode-Light-RL-10K, Glaive function calling v2, 
+databricks-dolly-15k. Every source was checked for overlap with evaluation questions and
+11 overlapping function-calling questions were removed. One grey zone disclosed is that the GRPO instruction
+pool also holds dolly prompts with wrapper constraints (`<reply>` tags, brackets, a fenced block),
 added after reading IFEval's failures, whose loops mostly come from its "wrap in double quotes"
 constraint. No IFEval prompt, constraint or verifier is used; the structure is shared.
 
 ## What is new here, and what is not
 
-The building blocks are not new. Forcing a trial answer partway through the reasoning to see whether
+The methods themselves are nothing new. Forcing a trial answer partway through the reasoning to see whether
 the model already knows it is the basis of [DEER](https://arxiv.org/abs/2504.15895) (a training-free
 early exit). Fine-tuning on reasoning traces with the redundant end cut off, located with the
 reference answer, is [Self-Braking Tuning](https://arxiv.org/abs/2505.14604) and, with a confidence
@@ -87,12 +87,12 @@ budget is [ThinkPrune](https://arxiv.org/abs/2504.01296), [L1](https://arxiv.org
 the long2short stage of [Kimi k1.5](https://arxiv.org/abs/2501.12599); suppressing reflection words
 at decoding time is [NoWait](https://arxiv.org/abs/2506.08343).
 
-What this project adds, to my knowledge after a limited search:
+What this project adds:
 
 1. **Where an oracle says the answer is right is not where the model knows it.** Stops placed at the
    earliest point where a forced answer passes the tests teach the model to stop *before doing the
    work*: on code it stopped drafting the function in its reasoning (98% → 8% of answers) and wrote
-   untried code (MBPP+ −5.4 pp). Constraining the stop to come after the model's own draft fixes it.
+   untried code (MBPP+ −5.4 pp). Constraining the stop to come after the models own draft fixes it.
    The failure is invisible on the training distribution and shows only on a related benchmark.
 2. **A controlled SFT-vs-RL comparison on one behaviour: re-checking an answer already reached.** On
    arithmetic, every variant of stop data that shortened SVAMP by 19–48% (stop margins, later cut
@@ -108,9 +108,6 @@ What this project adds, to my knowledge after a limited search:
    or 0.5 removes it entirely instead of giving a shorter-but-safer model. And because the metric is
    a ratio of sums, a handful of attempts that run to the cap dominate it, which makes "give up with
    a best guess" worth as much as any reasoning-level change on code.
-
-Everything runs on one 16 GB consumer GPU and is published with its failures; the method behind the
-ThinkingCap models it was benchmarked against is not public.
 
 ## Along the way
 
