@@ -34,7 +34,7 @@ what was learned.
 | *Average, other full run* | | *43.5%* [42.2, 44.9] | *−0.77 pp* [−1.49, −0.10] |
 
 Tokens saved is the evaluation's own metric: per benchmark one minus the ratio of summed tokens, 
-then the mean over benchmarks. Accuracy change is the mean over benchmarks. 8 samples per question. The
+then one minus the geometric mean of those ratios over benchmarks (BFCL's three subsets count as one). Accuracy change is the mean over benchmarks. 8 samples per question. The
 per-benchmark rows are the run made with the unmodified `evaluate.py` (its `results.json` is the
 submitted one); only 6,092 of 22,072 responses are identical between the two runs.
 
@@ -61,7 +61,8 @@ A method with two stages, both trained as a LoRA (r = 16) on the models own outp
      thinking tokens with the models own best answer cut capped MBPP responses from 49 to 6 per
      756, with no accuracy cost.
    - **Instruction following needs its own verifiable data.** Dolly instructions with format
-     constraints of five types IFEval does not use (no digits, Markdown table, emoji) halved
+     constraints of five types IFEval does not use (no digits, Markdown table, emoji count, ending with a
+     question, "!"-terminated sentences) halved
      IFEval's reasoning length (296 → 134 median tokens) with no accuracy loss.
 2. **GRPO** from that adapter, with reward `1[correct] · (1 − α · length / domain mean length)`:
    the length penalty is normalised per domain because the metric is a ratio of sums, and a wrong
@@ -121,6 +122,15 @@ What did not work, each on the evaluation's quick 2-sample run unless noted:
 | Scaling the adapter's strength (×0.75, ×0.5) | the stop vanishes entirely | a learned stop is a switch, not a dial |
 | Math with irrelevant distractor sentences | SVAMP still −5.2 pp | the loss came from the math stop data itself, not from distraction |
 | Cutting looping replies (Dolly, own wrapper formats) | 7 usable examples | plain instructions rarely loop; wrapper loops start at the first token, leaving nothing to keep |
+
+## Found later
+
+Two defects in the training data turned up during the follow-up work on larger models
+([Does Learning to Stop Scale?](https://github.com/Herz1c/DoesLearningToStopScale)) and apply to this
+repository as well. About 7% of the function-calling training rows carried a wrong "no call" label (the
+label was read from the first assistant turn only), and the checker for "end with a question / exclamation"
+rejected replies that ended in an emoji. Both are fixed in the follow-up; the results here were not re-run
+and are reported as measured.
 
 ## Held-out check
 
